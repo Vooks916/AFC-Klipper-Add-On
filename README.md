@@ -21,7 +21,7 @@ cd AFC-Klipper-Add-On
 
 ## Configuration (Automated)
 
-The `install-afc.sh` script will automatically the majority of the plugin for you. 
+The `install-afc.sh` script will automatically install the majority of the plugin for you. 
 
 Prior to starting Klipper, please review the configuration located at `~/printer_data/config/AFC/AFC_Hardware.cfg` and ensure all pins are correct for your specific hardware.
 
