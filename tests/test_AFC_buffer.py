@@ -1154,6 +1154,86 @@ class TestCmdSetBufferMultiplier:
         assert buf._last_multiplier == 1
         lane.update_rotation_distance.assert_not_called()
 
+    def _fault_buf(self, last_state, fault_enabled, advance_state=False, trailing_state=False):
+        buf, lane = self._ready_buf()
+        buf.type = "switched"
+        buf.last_state = last_state
+        buf.fault_sensitivity = 5.0 if fault_enabled else 0.0
+        buf.advance_state = advance_state
+        buf.trailing_state = trailing_state
+        buf.start_fault_detection = MagicMock()
+        return buf, lane
+
+    def test_high_fault_detection_switch_held_applies_boosted_multiplier(self):
+        buf, lane = self._fault_buf(ADVANCING_STATE_NAME, True, trailing_state=True)
+        buf.cmd_SET_BUFFER_MULTIPLIER(_make_gcmd({"MULTIPLIER": "HIGH"}, {"FACTOR": 1.3}))
+        assert buf.multiplier_high == 1.3
+        assert buf._last_multiplier == pytest.approx(1.95)
+        assert buf.last_state == ADVANCING_STATE_NAME
+        lane.update_rotation_distance.assert_called_once_with(pytest.approx(1.95))
+        buf.start_fault_detection.assert_not_called()
+        assert [c.args[0] for c in buf.logger.info.call_args_list] == [
+            "multiplier_high set to 1.3",
+            "multiplier_high: 1.3 MUST be updated under buffer config for value to be saved",
+        ]
+
+    def test_high_fault_detection_switch_released_applies_plain_multiplier(self):
+        buf, lane = self._fault_buf(ADVANCING_STATE_NAME, True, trailing_state=False)
+        buf.cmd_SET_BUFFER_MULTIPLIER(_make_gcmd({"MULTIPLIER": "HIGH"}, {"FACTOR": 1.3}))
+        assert buf.multiplier_high == 1.3
+        assert buf._last_multiplier == 1.3
+        lane.update_rotation_distance.assert_called_once_with(1.3)
+        assert [c.args[0] for c in buf.logger.info.call_args_list] == [
+            "multiplier_high set to 1.3",
+            "multiplier_high: 1.3 MUST be updated under buffer config for value to be saved",
+        ]
+
+    def test_high_no_fault_detection_switch_held_applies_plain_multiplier(self):
+        buf, lane = self._fault_buf(ADVANCING_STATE_NAME, False, trailing_state=True)
+        buf.cmd_SET_BUFFER_MULTIPLIER(_make_gcmd({"MULTIPLIER": "HIGH"}, {"FACTOR": 1.3}))
+        assert buf.multiplier_high == 1.3
+        assert buf._last_multiplier == 1.3
+        lane.update_rotation_distance.assert_called_once_with(1.3)
+        assert [c.args[0] for c in buf.logger.info.call_args_list] == [
+            "multiplier_high set to 1.3",
+            "multiplier_high: 1.3 MUST be updated under buffer config for value to be saved",
+        ]
+
+    def test_low_fault_detection_switch_held_applies_reduced_multiplier(self):
+        buf, lane = self._fault_buf(TRAILING_STATE_NAME, True, advance_state=True)
+        buf.cmd_SET_BUFFER_MULTIPLIER(_make_gcmd({"MULTIPLIER": "LOW"}, {"FACTOR": 0.8}))
+        assert buf.multiplier_low == 0.8
+        assert buf._last_multiplier == pytest.approx(0.32)
+        assert buf.last_state == TRAILING_STATE_NAME
+        lane.update_rotation_distance.assert_called_once_with(pytest.approx(0.32))
+        buf.start_fault_detection.assert_not_called()
+        assert [c.args[0] for c in buf.logger.info.call_args_list] == [
+            "multiplier_low set to 0.8",
+            "multiplier_low: 0.8 MUST be updated under buffer config for value to be saved",
+        ]
+
+    def test_low_fault_detection_switch_released_applies_plain_multiplier(self):
+        buf, lane = self._fault_buf(TRAILING_STATE_NAME, True, advance_state=False)
+        buf.cmd_SET_BUFFER_MULTIPLIER(_make_gcmd({"MULTIPLIER": "LOW"}, {"FACTOR": 0.8}))
+        assert buf.multiplier_low == 0.8
+        assert buf._last_multiplier == 0.8
+        lane.update_rotation_distance.assert_called_once_with(0.8)
+        assert [c.args[0] for c in buf.logger.info.call_args_list] == [
+            "multiplier_low set to 0.8",
+            "multiplier_low: 0.8 MUST be updated under buffer config for value to be saved",
+        ]
+
+    def test_low_no_fault_detection_switch_held_applies_plain_multiplier(self):
+        buf, lane = self._fault_buf(TRAILING_STATE_NAME, False, advance_state=True)
+        buf.cmd_SET_BUFFER_MULTIPLIER(_make_gcmd({"MULTIPLIER": "LOW"}, {"FACTOR": 0.8}))
+        assert buf.multiplier_low == 0.8
+        assert buf._last_multiplier == 0.8
+        lane.update_rotation_distance.assert_called_once_with(0.8)
+        assert [c.args[0] for c in buf.logger.info.call_args_list] == [
+            "multiplier_low set to 0.8",
+            "multiplier_low: 0.8 MUST be updated under buffer config for value to be saved",
+        ]
+
     def test_high_with_factor_not_over_one_falls_to_else(self):
         buf, lane = self._ready_buf()
         buf.cmd_SET_BUFFER_MULTIPLIER(_make_gcmd({"MULTIPLIER": "HIGH"}, {"FACTOR": 0.9}))
