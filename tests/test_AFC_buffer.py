@@ -1111,34 +1111,48 @@ class TestCmdSetBufferMultiplier:
     def test_high_with_factor_over_one_sets_multiplier_high(self):
         buf, lane = self._ready_buf()
         buf.type = "switched"
+        buf.last_state = ADVANCING_STATE_NAME
         buf.cmd_SET_BUFFER_MULTIPLIER(_make_gcmd({"MULTIPLIER": "high"}, {"FACTOR": 1.3}))
         assert buf.multiplier_high == 1.3
-        assert lane.update_rotation_distance.call_args[0][0] == 1.3
-        assert any(
-            c.args == ("multiplier_high set to 1.3",)
-            for c in buf.logger.info.call_args_list)
-        assert any(
-            "multiplier_high: 1.3 MUST be updated under buffer config" in c.args[0]
-            for c in buf.logger.info.call_args_list)
+        assert buf._last_multiplier == 1.3
+        assert buf.last_state == ADVANCING_STATE_NAME
+        lane.update_rotation_distance.assert_called_once_with(1.3)
+        assert [c.args[0] for c in buf.logger.info.call_args_list] == [
+            "multiplier_high set to 1.3",
+            "multiplier_high: 1.3 MUST be updated under buffer config for value to be saved",
+        ]
 
     def test_high_not_switched_type_skips_set_multiplier(self):
         buf, lane = self._ready_buf()
         buf.type = "FPS_PSF"
+        buf.last_state = ADVANCING_STATE_NAME
         buf.cmd_SET_BUFFER_MULTIPLIER(_make_gcmd({"MULTIPLIER": "HIGH"}, {"FACTOR": 1.3}))
+        assert buf.multiplier_high == 1.3
+        assert buf._last_multiplier == 1
         lane.update_rotation_distance.assert_not_called()
 
     def test_low_with_factor_under_one_sets_multiplier_low(self):
         buf, lane = self._ready_buf()
         buf.type = "switched"
+        buf.last_state = TRAILING_STATE_NAME
         buf.cmd_SET_BUFFER_MULTIPLIER(_make_gcmd({"MULTIPLIER": "low"}, {"FACTOR": 0.8}))
         assert buf.multiplier_low == 0.8
-        assert lane.update_rotation_distance.call_args[0][0] == 0.8
-        assert any(
-            c.args == ("multiplier_low set to 0.8",)
-            for c in buf.logger.info.call_args_list)
-        assert any(
-            "multiplier_low: 0.8 MUST be updated under buffer config" in c.args[0]
-            for c in buf.logger.info.call_args_list)
+        assert buf._last_multiplier == 0.8
+        assert buf.last_state == TRAILING_STATE_NAME
+        lane.update_rotation_distance.assert_called_once_with(0.8)
+        assert [c.args[0] for c in buf.logger.info.call_args_list] == [
+            "multiplier_low set to 0.8",
+            "multiplier_low: 0.8 MUST be updated under buffer config for value to be saved",
+        ]
+
+    def test_low_not_switched_type_skips_set_multiplier(self):
+        buf, lane = self._ready_buf()
+        buf.type = "FPS_PSF"
+        buf.last_state = TRAILING_STATE_NAME
+        buf.cmd_SET_BUFFER_MULTIPLIER(_make_gcmd({"MULTIPLIER": "LOW"}, {"FACTOR": 0.8}))
+        assert buf.multiplier_low == 0.8
+        assert buf._last_multiplier == 1
+        lane.update_rotation_distance.assert_not_called()
 
     def test_high_with_factor_not_over_one_falls_to_else(self):
         buf, lane = self._ready_buf()
@@ -1160,6 +1174,36 @@ class TestCmdSetBufferMultiplier:
         assert any(
             "multiplier_high must be greater than 1" in c.args[0]
             for c in buf.logger.info.call_args_list)
+
+    def test_set_multiplier_low_cant_change_buffer_state(self):
+        buf, lane = self._ready_buf()
+        buf.trailing_callback(100.0, True)
+        assert buf.last_state == ADVANCING_STATE_NAME
+        buf.logger.reset_mock()
+        buf.cmd_SET_BUFFER_MULTIPLIER(_make_gcmd({"MULTIPLIER": "LOW"}, {"FACTOR": 0.8}))
+        assert buf.multiplier_low == 0.8
+        buf.cmd_QUERY_BUFFER(_make_gcmd())
+        assert buf.last_state == ADVANCING_STATE_NAME
+        assert [c.args[0] for c in buf.logger.info.call_args_list] == [
+            "multiplier_low set to 0.8",
+            "multiplier_low: 0.8 MUST be updated under buffer config for value to be saved",
+            f"TN : Advancing (buffer is expanding)\n{lane.name} Rotation distance: 20.0000",
+        ]
+
+    def test_set_multiplier_high_cant_change_buffer_state(self):
+        buf, lane = self._ready_buf()
+        buf.advance_callback(100.0, True)
+        assert buf.last_state == TRAILING_STATE_NAME
+        buf.logger.reset_mock()
+        buf.cmd_SET_BUFFER_MULTIPLIER(_make_gcmd({"MULTIPLIER": "High"}, {"FACTOR": 1.2}))
+        assert buf.multiplier_high == 1.2
+        buf.cmd_QUERY_BUFFER(_make_gcmd())
+        assert buf.last_state == TRAILING_STATE_NAME
+        assert [c.args[0] for c in buf.logger.info.call_args_list] == [
+            "multiplier_high set to 1.2",
+            "multiplier_high: 1.2 MUST be updated under buffer config for value to be saved",
+            f"TN : Trailing (buffer is compressing)\n{lane.name} Rotation distance: 20.0000",
+        ]
 
 
 class TestCmdSetRotationFactor:
